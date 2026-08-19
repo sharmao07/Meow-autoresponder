@@ -4,6 +4,7 @@ from discord.ext import commands
 import json
 import os
 from dotenv import load_dotenv
+import math
 
 # 1. Load the secret token
 load_dotenv()
@@ -149,6 +150,56 @@ async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: 
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
     await interaction.response.send_message(f"📝 **Updated!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
 
+# --- PAGINATION SYSTEM ---
+class PaginationView(discord.ui.View):
+    def __init__(self, data, author_name, author_icon):
+        super().__init__(timeout=180) # Buttons time out after 3 minutes
+        self.data = data
+        self.author_name = author_name
+        self.author_icon = author_icon
+        self.current_page = 1
+        self.per_page = 10
+        self.total_pages = math.ceil(len(self.data) / self.per_page) if self.data else 1
+        
+        # Disable "Prev" button on page 1
+        self.children[0].disabled = True 
+        # Disable "Next" button if there is only 1 page total
+        if self.total_pages <= 1:
+            self.children[1].disabled = True
+
+    def format_page(self):
+        start = (self.current_page - 1) * self.per_page
+        end = start + self.per_page
+        page_items = self.data[start:end]
+        
+        description = "🌟 **Autoresponders Setup**\n\n" + "\n".join(page_items)
+        
+        embed = discord.Embed(description=description, color=discord.Color.from_str("#72bcd4"))
+        if self.author_icon:
+            embed.set_author(name=self.author_name, icon_url=self.author_icon)
+        else:
+            embed.set_author(name=self.author_name)
+            
+        embed.set_footer(text=f"Page {self.current_page} of {self.total_pages} • Total Triggers: {len(self.data)}")
+        return embed
+
+    @discord.ui.button(emoji="⬅️", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        # Update button states
+        self.children[0].disabled = self.current_page == 1
+        self.children[1].disabled = False
+        await interaction.response.edit_message(embed=self.format_page(), view=self)
+
+    @discord.ui.button(emoji="➡️", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        # Update button states
+        self.children[1].disabled = self.current_page == self.total_pages
+        self.children[0].disabled = False
+        await interaction.response.edit_message(embed=self.format_page(), view=self)
+
+
 # 4️⃣ SLASH COMMAND: /list
 @bot.tree.command(name="list", description="Show all active server autoresponders")
 async def list_responders(interaction: discord.Interaction):
@@ -170,18 +221,23 @@ async def list_responders(interaction: discord.Interaction):
             list_lines.append(f"• **{word}** → {data} (Broad Match)")
             
     list_lines.sort()
-    plain_text_list = "\n".join(list_lines) if list_lines else "No autoresponders setup in this server."
-        
-    embed = discord.Embed(
-        description=f"🌟 **Autoresponders Setup**\n\n{plain_text_list}",
-        color=discord.Color.from_str("#72bcd4")
-    )
-    if interaction.guild and interaction.guild.icon:
-        embed.set_author(name=interaction.guild.name, icon_url=interaction.guild.icon.url)
-    elif interaction.guild:
-        embed.set_author(name=interaction.guild.name)
-        
-    await interaction.response.send_message(embed=embed)
+    
+    # Handle empty list case
+    if not list_lines:
+        embed = discord.Embed(description="🌟 **Autoresponders Setup**\n\nNo autoresponders setup in this server.", color=discord.Color.from_str("#72bcd4"))
+        if interaction.guild:
+            icon_url = interaction.guild.icon.url if interaction.guild.icon else None
+            embed.set_author(name=interaction.guild.name, icon_url=icon_url)
+        return await interaction.response.send_message(embed=embed)
+
+    # Handle populated list with paginator
+    author_name = interaction.guild.name if interaction.guild else "Autoresponders"
+    author_icon = interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None
+
+    view = PaginationView(list_lines, author_name, author_icon)
+    
+    # Send the first page with the buttons attached
+    await interaction.response.send_message(embed=view.format_page(), view=view)
 
 # 📥 Background Message Scanner
 @bot.event
