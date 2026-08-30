@@ -5,6 +5,8 @@ import json
 import os
 from dotenv import load_dotenv
 import math
+from pymongo import MongoClient
+import keep_alive
 
 # 1. Load the secret token
 load_dotenv()
@@ -21,30 +23,42 @@ bot = commands.Bot(command_prefix="?meow ", intents=intents)
 ALLOWED_CATEGORY_ID = 1402027749350314075 
 ALLOWED_ROLE_IDS = [1491116707199193158]
 
-# 📁 Database Helpers (Everything saved lowercase for perfect case-insensitivity)
+# 📁 Cloud Database Helpers (MongoDB)
+MONGO_URI = os.getenv('MONGO_URI')
+cluster = MongoClient(MONGO_URI)
+db = cluster["meowresponder"]
+collection = db["autoresponses"]
+
 def load_responses():
-    if not os.path.exists("autoresponses.json"):
-        with open("autoresponses.json", "w") as f:
-            json.dump({}, f)
-        return {}
     try:
-        with open("autoresponses.json", "r") as f:
-            return json.load(f)
+        docs = collection.find({})
+        data = {}
+        for doc in docs:
+            data[doc["_id"]] = doc["responses"]
+        return data
     except Exception as e:
-        print(f"Error reading database: {e}")
+        print(f"Error reading from MongoDB: {e}")
         return {}
 
 def save_responses(data):
-    with open("autoresponses.json", "w") as f:
-        json.dump(data, f, indent=4)
+    try:
+        for guild_id, responses in data.items():
+            collection.update_one(
+                {"_id": guild_id},
+                {"$set": {"responses": responses}},
+                upsert=True
+            )
+            
+        # Clean up any guilds that deleted all their triggers
+        existing_guilds = [doc["_id"] for doc in collection.find({})]
+        for g_id in existing_guilds:
+            if g_id not in data:
+                collection.delete_one({"_id": g_id})
+    except Exception as e:
+        print(f"Error saving to MongoDB: {e}")
 
 # 🛡️ Security Check
 def is_slash_authorized(interaction: discord.Interaction) -> bool:
-    # 🌟 NEW: Server Administrators can use the commands anywhere
-    if interaction.user.guild_permissions.administrator:
-        return True
-
-    # Standard check for regular staff
     is_mod_channel_name = "mod" in interaction.channel.name.lower()
     is_in_allowed_category = interaction.channel.category_id == ALLOWED_CATEGORY_ID
     
@@ -93,7 +107,7 @@ async def clean_server_commands(ctx):
 )
 async def add_responder(interaction: discord.Interaction, trigger: str, emoji: str, case_sensitive: bool):
     if not is_slash_authorized(interaction):
-        return await interaction.response.send_message("❌ This action is restricted to staff in specific channels.", ephemeral=True)
+        return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     responses = load_responses()
     guild_id = str(interaction.guild.id)
@@ -115,7 +129,7 @@ async def add_responder(interaction: discord.Interaction, trigger: str, emoji: s
 @app_commands.describe(trigger="The word trigger you want to delete")
 async def remove_responder(interaction: discord.Interaction, trigger: str):
     if not is_slash_authorized(interaction):
-        return await interaction.response.send_message("❌ This action is restricted to staff in specific channels.", ephemeral=True)
+        return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     responses = load_responses()
     guild_id = str(interaction.guild.id)
@@ -137,7 +151,7 @@ async def remove_responder(interaction: discord.Interaction, trigger: str):
 )
 async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: str, case_sensitive: bool):
     if not is_slash_authorized(interaction):
-        return await interaction.response.send_message("❌ This action is restricted to staff in specific channels.", ephemeral=True)
+        return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     responses = load_responses()
     guild_id = str(interaction.guild.id)
@@ -154,7 +168,6 @@ async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: 
     
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
     await interaction.response.send_message(f"📝 **Updated!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
-
 
 # --- PAGINATION SYSTEM ---
 class PaginationView(discord.ui.View):
@@ -245,7 +258,6 @@ async def list_responders(interaction: discord.Interaction):
     # Send the first page with the buttons attached
     await interaction.response.send_message(embed=view.format_page(), view=view)
 
-
 # 📥 Background Message Scanner
 @bot.event
 async def on_message(message):
@@ -288,4 +300,5 @@ async def on_message(message):
     await bot.process_commands(message)
 
 if __name__ == "__main__":
+    keep_alive.keep_alive()
     bot.run(TOKEN)
