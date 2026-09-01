@@ -109,6 +109,7 @@ async def add_responder(interaction: discord.Interaction, trigger: str, emoji: s
     if not is_slash_authorized(interaction):
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
+    await interaction.response.defer()
     responses = load_responses()
     guild_id = str(interaction.guild.id)
     if guild_id not in responses:
@@ -122,8 +123,8 @@ async def add_responder(interaction: discord.Interaction, trigger: str, emoji: s
     save_responses(responses)
     
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
-    await interaction.response.send_message(f"✅ **Added!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
-
+    await interaction.followup.send(f"✅ **Added!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
+    
 # 2️⃣ SLASH COMMAND: /remove
 @bot.tree.command(name="remove", description="Remove an autoresponder trigger")
 @app_commands.describe(trigger="The word trigger you want to delete")
@@ -131,6 +132,7 @@ async def remove_responder(interaction: discord.Interaction, trigger: str):
     if not is_slash_authorized(interaction):
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
+    await interaction.response.defer()
     responses = load_responses()
     guild_id = str(interaction.guild.id)
     word_key = trigger.lower()
@@ -138,10 +140,8 @@ async def remove_responder(interaction: discord.Interaction, trigger: str):
     if guild_id in responses and word_key in responses[guild_id]:
         del responses[guild_id][word_key]
         save_responses(responses)
-        return await interaction.response.send_message(f"🗑️ Successfully removed trigger: **{word_key}**")
-            
-    await interaction.response.send_message(f"⚠️ No active trigger found for '{trigger}'.")
-
+        return await interaction.followup.send(f"🗑️ Successfully removed trigger: **{word_key}**")
+        
 # 3️⃣ SLASH COMMAND: /edit
 @bot.tree.command(name="edit", description="Edit an existing autoresponder trigger")
 @app_commands.describe(
@@ -153,12 +153,13 @@ async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: 
     if not is_slash_authorized(interaction):
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
+    await interaction.response.defer()
     responses = load_responses()
     guild_id = str(interaction.guild.id)
     word_key = trigger.lower()
     
     if guild_id not in responses or word_key not in responses[guild_id]:
-        return await interaction.response.send_message(f"❌ '{trigger}' does not exist. Use `/add` to create it first.", ephemeral=True)
+        return await interaction.followup.send(f"❌ '{trigger}' does not exist. Use `/add` to create it first.")
         
     responses[guild_id][word_key] = {
         "emoji": emoji,
@@ -167,8 +168,8 @@ async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: 
     save_responses(responses)
     
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
-    await interaction.response.send_message(f"📝 **Updated!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
-
+    await interaction.followup.send(f"📝 **Updated!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
+    
 # --- PAGINATION SYSTEM ---
 class PaginationView(discord.ui.View):
     def __init__(self, data, author_name, author_icon):
@@ -225,6 +226,7 @@ async def list_responders(interaction: discord.Interaction):
     if not is_slash_authorized(interaction):
         return await interaction.response.send_message("❌ This command is restricted.", ephemeral=True)
         
+    await interaction.response.defer()
     responses = load_responses()
     guild_id = str(interaction.guild.id)
     server_responses = responses.get(guild_id, {})
@@ -241,22 +243,20 @@ async def list_responders(interaction: discord.Interaction):
             
     list_lines.sort()
     
-    # Handle empty list case
     if not list_lines:
         embed = discord.Embed(description="🌟 **Autoresponders Setup**\n\nNo autoresponders setup in this server.", color=discord.Color.from_str("#72bcd4"))
         if interaction.guild:
             icon_url = interaction.guild.icon.url if interaction.guild.icon else None
             embed.set_author(name=interaction.guild.name, icon_url=icon_url)
-        return await interaction.response.send_message(embed=embed)
+        return await interaction.followup.send(embed=embed)
 
-    # Handle populated list with paginator
     author_name = interaction.guild.name if interaction.guild else "Autoresponders"
     author_icon = interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None
 
     view = PaginationView(list_lines, author_name, author_icon)
     
-    # Send the first page with the buttons attached
-    await interaction.response.send_message(embed=view.format_page(), view=view)
+    await interaction.followup.send(embed=view.format_page(), view=view)
+
 
 # 📥 Background Message Scanner
 @bot.event
