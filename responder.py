@@ -73,7 +73,7 @@ def is_slash_authorized(interaction: discord.Interaction) -> bool:
     
     # 3. Check if non-admin has the allowed staff role
     user_role_ids = [role.id for role in interaction.user.roles]
-    return any(allowed_id in user_role_ids for allowed_id in ALLOWED_ROLE_IDS))
+    return any(allowed_id in user_role_ids for allowed_id in ALLOWED_ROLE_IDS)
 
 @bot.event
 async def on_ready():
