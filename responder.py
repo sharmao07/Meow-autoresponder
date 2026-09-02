@@ -59,14 +59,21 @@ def save_responses(data):
 
 # 🛡️ Security Check
 def is_slash_authorized(interaction: discord.Interaction) -> bool:
-    is_mod_channel_name = "mod" in interaction.channel.name.lower()
-    is_in_allowed_category = interaction.channel.category_id == ALLOWED_CATEGORY_ID
+    # 1. Anyone with Server Administrator permissions bypasses all restrictions
+    if interaction.user.guild_permissions.administrator:
+        return True
+
+    # 2. For non-admins: check if in a mod channel or allowed category
+    channel_name = getattr(interaction.channel, "name", "").lower()
+    is_mod_channel_name = "mod" in channel_name
+    is_in_allowed_category = getattr(interaction.channel, "category_id", None) == ALLOWED_CATEGORY_ID
     
     if not (is_mod_channel_name or is_in_allowed_category):
         return False
     
+    # 3. Check if non-admin has the allowed staff role
     user_role_ids = [role.id for role in interaction.user.roles]
-    return any(allowed_id in user_role_ids for allowed_id in ALLOWED_ROLE_IDS)
+    return any(allowed_id in user_role_ids for allowed_id in ALLOWED_ROLE_IDS))
 
 @bot.event
 async def on_ready():
