@@ -59,8 +59,10 @@ def save_responses(data):
 
 # 🛡️ Security Check
 def is_slash_authorized(interaction: discord.Interaction) -> bool:
-    # 1. Anyone with Server Administrator permissions bypasses all restrictions
-    if interaction.user.guild_permissions.administrator:
+    # 1. Server Administrators bypass all channel and role restrictions
+    if getattr(interaction.permissions, "administrator", False):
+        return True
+    if hasattr(interaction.user, "guild_permissions") and interaction.user.guild_permissions.administrator:
         return True
 
     # 2. For non-admins: check if in a mod channel or allowed category
@@ -72,7 +74,7 @@ def is_slash_authorized(interaction: discord.Interaction) -> bool:
         return False
     
     # 3. Check if non-admin has the allowed staff role
-    user_role_ids = [role.id for role in interaction.user.roles]
+    user_role_ids = [role.id for role in getattr(interaction.user, "roles", [])]
     return any(allowed_id in user_role_ids for allowed_id in ALLOWED_ROLE_IDS)
 
 @bot.event
