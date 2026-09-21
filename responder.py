@@ -29,6 +29,9 @@ cluster = MongoClient(MONGO_URI)
 db = cluster["meowresponder"]
 collection = db["autoresponses"]
 
+# 🧠 IN-MEMORY CACHE (This prevents the Cloudflare ban!)
+response_cache = {}
+
 def load_responses():
     try:
         docs = collection.find({})
@@ -79,6 +82,9 @@ def is_slash_authorized(interaction: discord.Interaction) -> bool:
 
 @bot.event
 async def on_ready():
+    global response_cache
+    response_cache = load_responses() # <-- Data is fetched safely once on startup
+    
     print("-----------------------------------------------")
     print(f"Logged in successfully as: {bot.user.name}")
     print("Clean 4-Command System: READY")
@@ -119,17 +125,20 @@ async def add_responder(interaction: discord.Interaction, trigger: str, emoji: s
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     await interaction.response.defer()
-    responses = load_responses()
+    
+    global response_cache
     guild_id = str(interaction.guild.id)
-    if guild_id not in responses:
-        responses[guild_id] = {}
+    if guild_id not in response_cache:
+        response_cache[guild_id] = {}
         
     word_key = trigger.lower()
-    responses[guild_id][word_key] = {
+    response_cache[guild_id][word_key] = {
         "emoji": emoji,
         "exact": case_sensitive
     }
-    save_responses(responses)
+    
+    # Save the updated cache to the database
+    save_responses(response_cache)
     
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
     await interaction.followup.send(f"✅ **Added!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
@@ -142,14 +151,19 @@ async def remove_responder(interaction: discord.Interaction, trigger: str):
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     await interaction.response.defer()
-    responses = load_responses()
+    
+    global response_cache
     guild_id = str(interaction.guild.id)
     word_key = trigger.lower()
     
-    if guild_id in responses and word_key in responses[guild_id]:
-        del responses[guild_id][word_key]
-        save_responses(responses)
+    if guild_id in response_cache and word_key in response_cache[guild_id]:
+        del response_cache[guild_id][word_key]
+        
+        # Save the updated cache to the database
+        save_responses(response_cache)
         return await interaction.followup.send(f"🗑️ Successfully removed trigger: **{word_key}**")
+        
+    await interaction.followup.send(f"❌ Couldn't find a trigger for **{word_key}**.")
         
 # 3️⃣ SLASH COMMAND: /edit
 @bot.tree.command(name="edit", description="Edit an existing autoresponder trigger")
@@ -163,18 +177,21 @@ async def edit_responder(interaction: discord.Interaction, trigger: str, emoji: 
         return await interaction.response.send_message("❌ This action is restricted to staff.", ephemeral=True)
         
     await interaction.response.defer()
-    responses = load_responses()
+    
+    global response_cache
     guild_id = str(interaction.guild.id)
     word_key = trigger.lower()
     
-    if guild_id not in responses or word_key not in responses[guild_id]:
+    if guild_id not in response_cache or word_key not in response_cache[guild_id]:
         return await interaction.followup.send(f"❌ '{trigger}' does not exist. Use `/add` to create it first.")
         
-    responses[guild_id][word_key] = {
+    response_cache[guild_id][word_key] = {
         "emoji": emoji,
         "exact": case_sensitive
     }
-    save_responses(responses)
+    
+    # Save the updated cache to the database
+    save_responses(response_cache)
     
     match_lbl = "Exact Word Only" if case_sensitive else "Anywhere in Sentence"
     await interaction.followup.send(f"📝 **Updated!** [{match_lbl}]\nTrigger: **{word_key}** → {emoji}")
@@ -236,9 +253,10 @@ async def list_responders(interaction: discord.Interaction):
         return await interaction.response.send_message("❌ This command is restricted.", ephemeral=True)
         
     await interaction.response.defer()
-    responses = load_responses()
+    
+    global response_cache
     guild_id = str(interaction.guild.id)
-    server_responses = responses.get(guild_id, {})
+    server_responses = response_cache.get(guild_id, {})
     
     list_lines = []
     for word, data in server_responses.items():
@@ -273,9 +291,10 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
-    responses = load_responses()
+    # FAST MEMORY READ: No MongoDB calls here!
+    global response_cache
     guild_id = str(message.guild.id)
-    server_responses = responses.get(guild_id, {})
+    server_responses = response_cache.get(guild_id, {})
     
     # Force clean lowercase message processing to handle HuGa/HUGA/huga identically
     content_clean = message.content.strip().lower()
