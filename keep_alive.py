@@ -1,14 +1,19 @@
 from flask import Flask
 from threading import Thread
+import logging
 
-app = Flask("")
+# Disable Flask's default logging to keep your Render console clean
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
-@app.route("/")
+app = Flask('')
+
+@app.route('/')
 def home():
-    return "meowresponder is online and connected to mongodb!"
+    return "Meow Bot is awake and running!"
 
 def run():
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
     t = Thread(target=run)
